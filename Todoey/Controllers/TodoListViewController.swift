@@ -7,31 +7,23 @@
 //
 
 import UIKit
+import CoreData
 
 class TodoListViewController: UITableViewController {
 
     var itemArray = [Item]()
 
-    let defaults = UserDefaults.standard
+    var selectedCategory: Category? {
+        didSet {
+            loadItems()
+        }
+    }
 
-    let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Items.plist")
+    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        let newItem = Item()
-        newItem.title = "Buy shit"
-        itemArray.append(newItem)
-
-        let newItem2 = Item()
-        newItem2.title = "VISA"
-        itemArray.append(newItem2)
-
-        let newItem3 = Item()
-        newItem3.title = "IQ"
-        itemArray.append(newItem3)
-
-       loadData()
     }
 
     //MARK:- TableView Datasource Methods
@@ -70,9 +62,14 @@ class TodoListViewController: UITableViewController {
         let alert = UIAlertController(title: "Add New Todo", message: "", preferredStyle: .alert)
 
         let action = UIAlertAction(title: "Add Item", style: .default) { (action) in
-            let newItem = Item()
+
+            let newItem = Item(context: self.context)
 
             newItem.title = textField.text!
+
+            newItem.done = false
+
+            newItem.parentCategory = self.selectedCategory
 
             self.itemArray.append(newItem)
 
@@ -81,6 +78,7 @@ class TodoListViewController: UITableViewController {
 
         alert.addTextField { (alertTextField) in
             alertTextField.placeholder = "Create new item"
+            alertTextField.autocapitalizationType = .sentences
             textField = alertTextField
         }
 
@@ -92,11 +90,8 @@ class TodoListViewController: UITableViewController {
     //MARK:- Custom Methods
 
     func saveItems() {
-        let encoder = PropertyListEncoder()
-
         do {
-            let data = try encoder.encode(self.itemArray)
-            try data.write(to: self.dataFilePath!)
+            try context.save()
         } catch {
             print ("An error occurred: \(error)")
         }
@@ -104,15 +99,53 @@ class TodoListViewController: UITableViewController {
         tableView.reloadData()
     }
 
-    func loadData() {
-        if let data = try? Data(contentsOf: dataFilePath!) {
-            let decoder = PropertyListDecoder()
-            do {
-                itemArray = try decoder.decode([Item].self, from: data)
-            } catch {
-                print ("An error occurred with the decoding: \(error)")
-            }
+    func loadItems(with request: NSFetchRequest<Item> = Item.fetchRequest(), predicate: NSPredicate? = nil) {
+
+        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", selectedCategory!.name!)
+
+        if let predicate = predicate {
+            let compoundPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate, predicate])
+            request.predicate = compoundPredicate
+        } else {
+            request.predicate = categoryPredicate
         }
+
+        do {
+            itemArray = try context.fetch(request)
+        } catch {
+            print ("An error occurred loading data: \(error)")
+        }
+
+        tableView.reloadData()
+    }
+
+}
+
+extension TodoListViewController: UISearchBarDelegate {
+
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+
+        let request: NSFetchRequest<Item> = Item.fetchRequest()
+
+        request.predicate = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
+
+        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+
+        loadItems(with: request)
+
+    }
+
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+
+        if searchBar.text?.count == 0 {
+            loadItems()
+
+            DispatchQueue.main.async {
+                searchBar.resignFirstResponder()
+            }
+
+        }
+
     }
 
 }
